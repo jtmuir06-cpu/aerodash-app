@@ -6,7 +6,7 @@ ENGR 321 Project 1 prototype: a drone delivery operations app and fleet data das
 
 Once GitHub Pages is enabled for this repo, the site will be live at:
 
-`https://<your-username>.github.io/<repo-name>/`
+`https://jtmuir06-cpu.github.io/aerodash-app/`
 
 ## Install it as an app
 
