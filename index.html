@@ -141,6 +141,42 @@
   .caption{font-size:11px;color:var(--text-faint);margin-top:10px;line-height:1.5;}
   .flow-note{background:var(--panel-alt);border-left:3px solid var(--indigo);border-radius:0 8px 8px 0;padding:10px 14px;font-size:12px;color:var(--text-dim);margin-bottom:18px;}
 
+
+  /* Mobile responsive */
+  .table-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  @media (max-width: 860px){
+    .app{flex-direction:column;}
+    .rail{
+      width:100%;flex-direction:row;align-items:center;gap:14px;padding:12px 14px;
+      border-right:none;border-bottom:1px solid var(--border);
+      overflow-x:auto;-webkit-overflow-scrolling:touch;
+    }
+    .brand{flex-shrink:0;}
+    .brand-sub{display:none;}
+    .stepper{flex-direction:row;flex-shrink:0;gap:6px;}
+    .step-label{display:none;}
+    .step{flex-direction:row;align-items:center;gap:6px;white-space:nowrap;padding:8px 12px;border-radius:20px;width:auto;}
+    .step-text{flex-direction:row;gap:4px;}
+    .step-sub{display:none;}
+    .rail-foot{display:none;}
+    .main{padding:18px 16px 40px;max-width:100%;}
+    .screen-title{font-size:19px;}
+    .grid2{grid-template-columns:1fr;}
+    .grid3{grid-template-columns:1fr;}
+    .grid4{grid-template-columns:repeat(2,1fr);gap:10px;}
+    .zone-options{grid-template-columns:1fr;}
+    .card{padding:16px;}
+    .table-scroll table{min-width:480px;}
+    .timeline{overflow-x:auto;padding-bottom:4px;}
+    .tl-step{width:64px;}
+    .map{height:240px;}
+  }
+  @media (max-width: 480px){
+    .grid4{grid-template-columns:1fr;}
+    .tele{grid-template-columns:1fr;}
+    .kpi-val{font-size:19px;}
+  }
+
   @keyframes flyPath{
     0%{ offset-distance:0%; }
     100%{ offset-distance:100%; }
@@ -201,6 +237,7 @@
       </div>
 
       <div class="card">
+        <div class="table-scroll">
         <table>
           <tr><th>Drone</th><th>Recipient</th><th>Status</th><th>Battery</th><th>ETA</th></tr>
           <tr><td class="strong">DR-014</td><td>218 Rutledge Ave</td><td><span class="pill pill-active">In transit</span></td><td class="strong">81%</td><td>4 min</td></tr>
@@ -208,6 +245,7 @@
           <tr><td class="strong">DR-021</td><td>7 Hasell St, Unit B</td><td><span class="pill pill-ok">Approaching</span></td><td class="strong">55%</td><td>2 min</td></tr>
           <tr><td class="strong">DR-003</td><td>390 King St</td><td><span class="pill pill-ok">Delivered</span></td><td class="strong">72%</td><td>—</td></tr>
         </table>
+        </div>
       </div>
       <p class="caption">This screen exists for the fleet-manager persona identified in customer development — it addresses the pain point of not having real-time visibility across simultaneous deliveries.</p>
     </div>

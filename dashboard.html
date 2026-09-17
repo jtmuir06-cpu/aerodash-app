@@ -76,6 +76,23 @@
   .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
   .dot-warn{background:var(--warn);} .dot-danger{background:var(--danger);} .dot-ok{background:var(--accent);}
   .caption{font-size:11px;color:var(--text-faint);margin-top:12px;line-height:1.5;}
+
+  .table-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  @media (max-width: 860px){
+    .wrap{padding:18px 16px 40px;}
+    .kpi-row{grid-template-columns:repeat(2,1fr);gap:10px;}
+    .grid2{grid-template-columns:1fr;}
+    .grid3{grid-template-columns:1fr;}
+    .card{padding:16px;}
+    .chart-box{height:200px;}
+    .chart-box.short{height:170px;}
+    .title{font-size:19px;}
+    .table-scroll table{min-width:480px;}
+  }
+  @media (max-width: 480px){
+    .kpi-row{grid-template-columns:1fr;}
+    .kpi-val{font-size:19px;}
+  }
 </style>
 </head>
 <body>
@@ -139,6 +156,7 @@
   <div class="grid2">
     <div class="card">
       <div class="card-head"><span class="card-title">Active fleet</span><span class="card-sub">14 drones in operation</span></div>
+      <div class="table-scroll">
       <table>
         <tr><th>Drone</th><th>Zone</th><th>Status</th><th>Battery</th><th>ETA</th></tr>
         <tr><td class="strong">DR-014</td><td>Downtown</td><td><span class="pill pill-active">In transit</span></td><td class="strong">81%</td><td>4 min</td></tr>
@@ -147,6 +165,7 @@
         <tr><td class="strong">DR-003</td><td>Mount Pleasant</td><td><span class="pill pill-ok">Delivered</span></td><td class="strong">72%</td><td>&mdash;</td></tr>
         <tr><td class="strong">DR-017</td><td>James Island</td><td><span class="pill pill-danger">Low battery</span></td><td class="strong">18%</td><td>RTB</td></tr>
       </table>
+      </div>
     </div>
     <div class="card">
       <div class="card-head"><span class="card-title">Alerts</span><span class="card-sub">Needs attention</span></div>
