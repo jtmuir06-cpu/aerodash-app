@@ -1,4 +1,4 @@
-const CACHE = "aerodash-v2";
+const CACHE = "aerodash-v3";
 const ASSETS = [
   "./",
   "./index.html",
