@@ -26,6 +26,8 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  // The Project 2 drone simulator is not cached, so testers always get the latest version
+  if (new URL(event.request.url).pathname.endsWith("/drone-sim.html")) return;
   event.respondWith(
     caches.match(event.request).then(
       (cached) =>

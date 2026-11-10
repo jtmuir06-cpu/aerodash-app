@@ -22,6 +22,7 @@ Once installed, it opens full-screen with no browser chrome and works offline (t
 
 - `index.html` — six-screen delivery flow prototype (fleet dashboard, address & drop-zone input, drop-zone/geofence selection, live tracking, confirmation & notifications, emergency abort/return-to-base)
 - `dashboard.html` — fleet analytics data dashboard (KPIs, delivery volume, on-time trend, battery health, zone performance), linked from the fleet dashboard screen
+- `drone-sim.html` — ENGR 321 Project 2 drone delivery simulator (Nimbus Express vs. AeroDash panel study). Open in Chrome on a laptop or desktop: `https://jtmuir06-cpu.github.io/aerodash-app/drone-sim.html`
 - `manifest.json` — app name, icons, and standalone display mode
 - `sw.js` — service worker for offline caching
 - `icons/` — app icon set (192px, 512px, maskable, and Apple touch icon)
