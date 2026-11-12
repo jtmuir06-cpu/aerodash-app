@@ -240,6 +240,10 @@
         <div class="row" style="margin-top:10px"><button id="recBtn">Connect camera + screen</button></div>
       </div>
     </div>
+    <h2>Controller</h2>
+    <div class="keys">Microsoft Xbox controllers are picked up automatically. For a <b>wired third-party Xbox controller</b> (e.g. Razer Wolverine) on a Mac, click the button and choose it in Chrome's list. This turns it on. Chrome remembers it, so after the first time it reconnects by itself.</div>
+    <div class="row" style="margin-top:8px"><button id="usbPadBtn">Connect USB controller</button></div>
+    <div class="kv" id="usbPadStatus" style="margin-top:6px"></div>
     <h2>Before you start</h2>
     <div class="keys">
       1. Put the Apple Watch on the participant and start a <b>Workout (Other)</b> so heart rate is saved every few seconds. Leave it running for the whole session.<br>
@@ -670,16 +674,103 @@ document.addEventListener("webkitfullscreenchange", () => setTimeout(resize, 50)
 const keys = {};
 let padConnected = null;
 window.addEventListener("gamepadconnected", e => { padConnected = e.gamepad.id; updateCtrlStatus(); });
-window.addEventListener("gamepaddisconnected", () => { padConnected = null; updateCtrlStatus(); });
+window.addEventListener("gamepaddisconnected", () => { padConnected = usbPad.pad ? usbPad.pad.id : null; updateCtrlStatus(); });
 function updateCtrlStatus() { $("ctrlStatus").textContent = padConnected ? "Controller: " + padConnected.slice(0, 40) : "Controller: not detected (press a button)"; }
 updateCtrlStatus();
+
+// ---------------------------------------------------------------------
+// Wired third-party Xbox controllers over WebUSB (e.g. Razer Wolverine Ultimate).
+// On macOS, Chrome's Gamepad API only recognises Microsoft-made Xbox pads, and macOS has no
+// driver for third-party ones, so they stay dark and invisible. Here we speak the Xbox One USB
+// protocol (GIP) directly: send the power-on packet, read input reports, and expose a
+// Gamepad-like object in the standard mapping that readInput() uses like any other pad.
+// Chrome remembers the permission, so after the first "Connect USB controller" click the pad
+// reconnects automatically on page load and when it is plugged back in.
+// ---------------------------------------------------------------------
+const usbPad = { dev: null, pad: null, epIn: 1, epOut: 1, seq: 0 };
+const GIP_FILTER = { classCode: 0xff, subclassCode: 0x47, protocolCode: 0xd0 };
+function usbPadStatus(msg) { const el = $("usbPadStatus"); if (el) el.textContent = msg; }
+async function usbPadSend(bytes) {
+  const pkt = new Uint8Array(bytes); pkt[2] = usbPad.seq = (usbPad.seq + 1) & 0xff;
+  await usbPad.dev.transferOut(usbPad.epOut, pkt);
+}
+async function usbPadOpen(dev) {
+  if (usbPad.dev || usbPad.opening) return;                          // one pad at a time
+  usbPad.opening = true;
+  try {
+    await dev.open();
+    if (!dev.configuration) await dev.selectConfiguration(1);
+    const intf = dev.configuration.interfaces.find(i => i.alternate.interfaceClass === 0xff && i.alternate.endpoints.length >= 2);
+    if (!intf) throw new Error("no Xbox data interface on this device");
+    await dev.claimInterface(intf.interfaceNumber);
+    for (const ep of intf.alternate.endpoints) { if (ep.direction === "in") usbPad.epIn = ep.endpointNumber; else usbPad.epOut = ep.endpointNumber; }
+    usbPad.dev = dev;
+    usbPad.pad = { id: (dev.productName || "Xbox controller") + " (USB)", connected: true, mapping: "standard",
+      axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+    await usbPadSend([0x05, 0x20, 0, 0x01, 0x00]);                    // GIP power-on: wakes the pad
+    padConnected = usbPad.pad.id; updateCtrlStatus();
+    usbPadStatus("Connected: " + usbPad.pad.id);
+    usbPadLoop(dev);
+  } catch (e) {
+    usbPad.dev = null; usbPad.pad = null;
+    usbPadStatus("Could not connect: " + e.message);
+    try { await dev.close(); } catch (_) {}
+  } finally { usbPad.opening = false; }
+}
+function usbPadLost(msg) {
+  usbPad.dev = null; usbPad.pad = null;
+  const gps = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
+  const other = gps.find(g => g && g.connected);
+  padConnected = other ? other.id : null; updateCtrlStatus();
+  usbPadStatus(msg || "USB controller disconnected.");
+}
+function usbPadParse(d) {
+  const p = usbPad.pad, type = d.getUint8(0);
+  if (type === 0x20 && d.byteLength >= 18) {                           // input report
+    const b4 = d.getUint8(4), b5 = d.getUint8(5);
+    const ax = (o, flip) => Math.max(-1, Math.min(1, d.getInt16(o, true) / 32767)) * (flip ? -1 : 1);
+    p.axes[0] = ax(10); p.axes[1] = ax(12, true); p.axes[2] = ax(14); p.axes[3] = ax(16, true);
+    const lt = Math.min(1, d.getUint16(6, true) / 1023), rt = Math.min(1, d.getUint16(8, true) / 1023);
+    const set = (i, on, v) => { p.buttons[i].pressed = !!on; p.buttons[i].value = v !== undefined ? v : (on ? 1 : 0); };
+    set(0, b4 & 0x10); set(1, b4 & 0x20); set(2, b4 & 0x40); set(3, b4 & 0x80);   // A B X Y
+    set(4, b5 & 0x10); set(5, b5 & 0x20); set(6, lt > 0.1, lt); set(7, rt > 0.1, rt); // LB RB LT RT
+    set(8, b4 & 0x08); set(9, b4 & 0x04); set(10, b5 & 0x40); set(11, b5 & 0x80);  // View Menu LS RS
+    set(12, b5 & 0x01); set(13, b5 & 0x02); set(14, b5 & 0x04); set(15, b5 & 0x08); // d-pad
+  } else if (type === 0x07 && d.byteLength >= 5) {                    // Xbox (guide) button
+    p.buttons[16].pressed = !!(d.getUint8(4) & 1); p.buttons[16].value = p.buttons[16].pressed ? 1 : 0;
+    if (d.getUint8(1) & 0x10) {                                        // pad wants an acknowledgement
+      const ack = new Uint8Array([0x01, 0x20, d.getUint8(2), 0x09, 0x00, 0x07, 0x20, 0x02, 0, 0, 0, 0, 0]);
+      usbPad.dev.transferOut(usbPad.epOut, ack).catch(() => {});
+    }
+  }
+}
+async function usbPadLoop(dev) {
+  while (usbPad.dev === dev) {
+    let r;
+    try { r = await dev.transferIn(usbPad.epIn, 64); } catch (e) { if (usbPad.dev === dev) usbPadLost("USB controller stopped responding: " + e.message); return; }
+    if (r.status === "stall") { try { await dev.clearHalt("in", usbPad.epIn); } catch (_) {} continue; }
+    if (r.status === "ok" && r.data && r.data.byteLength) usbPadParse(r.data);
+  }
+}
+if (navigator.usb) {
+  navigator.usb.addEventListener("connect", e => usbPadOpen(e.device));
+  navigator.usb.addEventListener("disconnect", e => { if (e.device === usbPad.dev) usbPadLost(); });
+  navigator.usb.getDevices().then(ds => { if (ds.length) usbPadOpen(ds[0]); }).catch(() => {});
+  $("usbPadBtn").addEventListener("click", async () => {
+    try { await usbPadOpen(await navigator.usb.requestDevice({ filters: [GIP_FILTER] })); }
+    catch (e) { if (e.name !== "NotFoundError") usbPadStatus("Could not connect: " + e.message); }
+  });
+} else {
+  $("usbPadBtn").disabled = true;
+  usbPadStatus("This browser has no WebUSB. Use Chrome (opened from https:// or localhost).");
+}
 
 const dz = (v) => Math.abs(v) < CFG.deadzone ? 0 : (v - Math.sign(v) * CFG.deadzone) / (1 - CFG.deadzone);
 let prevBtn = {};
 function readInput() {
   const inp = { throttle: 0, yaw: 0, pitch: 0, roll: 0, ack: false, pause: false, drop: false };
   const gps = navigator.getGamepads ? navigator.getGamepads() : [];
-  const gp = Array.from(gps).find(g => g && g.connected);
+  const gp = Array.from(gps).find(g => g && g.connected) || usbPad.pad;
   if (gp) {
     if (!padConnected) { padConnected = gp.id; updateCtrlStatus(); }
     inp.yaw = dz(gp.axes[0] || 0);
