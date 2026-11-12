@@ -477,18 +477,22 @@ function makePad(x, z, color, label) {
 //   walls:   [x, z, dir]  construction wall blocking the street, must climb over (forces > 30 m)
 //   bridges: [x, z, dir]  sky bridge across the street from 21 to 28 m, fly under it
 //   dir "ns" = street runs north-south (along z), "ew" = street runs east-west (along x)
+// Walls and bridges sit mid-block (the along-street coordinate is an odd multiple of 40), never in an
+// intersection: a wall in an intersection can be flown around through the cross street. The blocks on
+// both sides of each wall are always built (see buildWorld), so the only way past is over the top.
+// Each wall has >= 60 m before and after it to the nearest gate (gates are at 15 m), leaving room to climb.
 const COURSES = {
   A: {
-    out: [[0, -110, 15], [0, -240, 15], [130, -240, 15], [270, -240, 15], [400, -240, 15], [400, -400, 15], [400, -560, 15]],
+    out: [[0, -110, 15], [0, -240, 15], [130, -240, 15], [270, -240, 15], [400, -240, 15], [400, -380, 15], [400, -560, 15]],
     ret: [[560, -560, 15], [560, -400, 15], [560, -240, 15], [560, -160, 15], [420, -160, 15], [240, -160, 15], [80, -160, 15], [80, 0, 12]],
-    walls: [[200, -240, "ew"], [400, -480, "ns"], [330, -160, "ew"]],
-    bridges: [[0, -175, "ns"], [400, -320, "ns"], [560, -320, "ns"], [150, -160, "ew"]],
+    walls: [[200, -240, "ew"], [400, -440, "ns"], [360, -160, "ew"]],
+    bridges: [[0, -200, "ns"], [400, -280, "ns"], [560, -360, "ns"], [120, -160, "ew"]],
   },
   P: {
-    out: [[0, -110, 15], [0, -300, 15], [0, -360, 15]],
-    ret: [[0, -340, 15], [0, -120, 15], [0, -60, 12]],
-    walls: [[0, -240, "ns"]],
-    bridges: [[0, -170, "ns"]],
+    out: [[0, -70, 15], [0, -190, 15], [0, -360, 15]],
+    ret: [[0, -340, 15], [0, -210, 15], [0, -50, 12]],
+    walls: [[0, -280, "ns"]],
+    bridges: [[0, -120, "ns"]],
   },
 };
 
@@ -548,21 +552,33 @@ function buildWorld(routeKey) {
 
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.MeshLambertMaterial({ color: 0x6f8f5a }));
   ground.rotation.x = -Math.PI / 2; worldGroup.add(ground);
-  const roads = new THREE.MeshLambertMaterial({ color: 0x4a4f57 });
+  // Polygon offset keeps roads drawn over the ground on GPUs with low depth precision (no flicker or "grass streets")
+  const roads = new THREE.MeshLambertMaterial({ color: 0x4a4f57, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
   // City grid. Same seed for A and B, B is mirrored, so difficulty matches.
   const rnd = mulberry32(routeKey === "P" ? 7 : 2026);
   const pitch = 80, foot = 50, extent = 760;
   const special = [pads.depot, pads.drop, ...pads.chargers];
   const bMat = [0x8a96a8, 0x9fa9b8, 0x7b8698, 0xb0b8c4, 0x6c7789].map(c => new THREE.MeshLambertMaterial({ color: c }));
+  // Blocks beside each construction wall are always built (never an open lot or cleared for a pad),
+  // so the wall can't be bypassed through an empty lot.
+  const bkey = (x, z) => Math.round(x) + "," + Math.round(z);
+  const forced = new Set();
+  C.walls.forEach(([wx, wz, dir]) => {
+    const x = mx(wx);
+    if (dir === "ns") { forced.add(bkey(x - 40, wz)); forced.add(bkey(x + 40, wz)); }
+    else { forced.add(bkey(x, wz - 40)); forced.add(bkey(x, wz + 40)); }
+  });
   for (let gx = -extent; gx <= extent; gx += pitch) {
     for (let gz = -extent; gz <= extent; gz += pitch) {
       const r1 = rnd(), r2 = rnd(), r3 = rnd();
-      if (r1 < 0.12) continue; // open lots
       // Blocks sit at odd multiples of 40 m, so streets run along multiples of 80 m (where the course is)
       const cx = gx * mirror, cz = gz;
-      const near = special.some(p => Math.hypot(p.x - cx, p.z - cz) < 48);
-      if (near) continue;
+      if (!forced.has(bkey(cx, cz))) {
+        if (r1 < 0.12) continue; // open lots
+        const near = special.some(p => Math.hypot(p.x - cx, p.z - cz) < 48);
+        if (near) continue;
+      }
       const h = 14 + Math.floor(r2 * 44);
       const w = foot - r3 * 10;
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), bMat[Math.floor(r3 * bMat.length) % bMat.length]);
@@ -585,8 +601,7 @@ function buildWorld(routeKey) {
   const stripeMat = new THREE.MeshLambertMaterial({ color: 0xf5f5f5 });
   C.walls.forEach(([wx, wz, dir]) => {
     const x = mx(wx), z = wz, alongX = dir === "ew";
-    // 44 m wide so a mid-block wall reaches into the buildings on both sides (at 32 m, narrow
-    // buildings left a ~2 m slot). Walls at/near an intersection can still be flown around via the cross street.
+    // 44 m wide so the wall reaches into the buildings on both sides (at 32 m, narrow buildings left a ~2 m slot)
     const sx = alongX ? 4 : 44, sz = alongX ? 44 : 4;
     const w = new THREE.Mesh(new THREE.BoxGeometry(sx, CFG.wallH, sz), wallMat); w.position.set(x, CFG.wallH / 2, z); worldGroup.add(w);
     for (let k = 4; k < CFG.wallH; k += 8) {
