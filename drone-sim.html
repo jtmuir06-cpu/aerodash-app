@@ -32,6 +32,11 @@
   #dropPrompt.ok { background: rgba(31,138,76,.92); }
   #dropPrompt.no { background: rgba(196,110,20,.92); }
   #dropPrompt.info { background: rgba(20,40,70,.88); }
+  /* Practice-only training alert: centered in the flight view, deliberately not on either dashboard panel */
+  #practiceAlert { position: absolute; left: 50%; top: 16%; transform: translateX(-50%); max-width: 80%; padding: 14px 22px; border-radius: 12px; font: 700 20px system-ui, sans-serif; color: #fff; text-align: center; pointer-events: none; display: none; box-shadow: 0 4px 18px rgba(0,0,0,.45); zoom: var(--ui); }
+  #practiceAlert.on { display: block; background: rgba(170,40,40,.94); }
+  #practiceAlert.ok { display: block; background: rgba(31,138,76,.94); }
+  #practiceAlert.miss { display: block; background: rgba(196,110,20,.94); }
   /* On-screen drop button (mouse/touch). Only active while landed in the drop zone. */
   #dropBtn { position: absolute; left: 16px; bottom: 16px; zoom: var(--ui); display: none; padding: 12px 20px; font: 800 16px system-ui, sans-serif; letter-spacing: .03em; border-radius: 10px; border: 2px solid rgba(255,255,255,.85); background: rgba(40,46,56,.75); color: rgba(255,255,255,.6); cursor: not-allowed; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
   #dropBtn.ready { background: #1f8a4c; color: #fff; cursor: pointer; }
@@ -191,6 +196,7 @@
     <div id="reticle"></div>
     <div id="downcam"><div id="downcamLabel">DOWN CAMERA</div></div>
     <div id="dropPrompt"></div>
+    <div id="practiceAlert"></div>
     <button id="dropBtn" type="button" tabindex="-1">DROP PACKAGE</button>
     <div id="paused">PAUSED</div>
   </div>
@@ -214,7 +220,7 @@
       <div><label>Trial</label>
         <select id="trial">
           <option value="B" selected>Baseline rest (3 min, no flying)</option>
-          <option value="0">Practice (no alerts, up to 3 min)</option>
+          <option value="0">Practice (2 training alerts, up to 3 min)</option>
           <option value="1">Trial 1</option>
           <option value="2">Trial 2</option>
         </select></div>
@@ -251,6 +257,7 @@
       3. Connect the camera and screen above.<br>
       4. Run in this order: <b>Baseline rest → Practice → Trial 1 → Trial 2</b>.<br>
       5. Press any button on the controller so the browser detects it (top-right of the flight view).<br>
+      5b. Tell the participant before Practice: <b>"When you notice an alert, press A right away."</b> Practice shows 2 training alerts to practice this. If the end screen says fewer than 2 were acknowledged, explain again before Trial 1.<br>
       6. After Trial 2, end the workout on the watch. Heart rate is then in the iPhone Health app for export.
     </div>
     <h2>Surveys and results</h2>
@@ -342,6 +349,7 @@ const CFG = {
   maxAlt: 90,
   trialLimit: 480,       // s, hard stop
   practiceLimit: 180,    // s
+  practiceAlerts: [30, 75], // s, neutral training alerts in Practice (flight view, not the dashboard)
   eventBase: [40, 105, 170], // s, slots for wind (arming) and status, before jitter
   lowBattWindow: [35, 170],  // s, low-battery alert time is drawn at random in this window
   eventGap: 15,          // s, minimum gap between alert times
@@ -1307,7 +1315,10 @@ function startTrial() {
     devSum: 0, devN: 0, deliveredAt: null, endReason: "",
     status: { pendingSince: null, result: null, alert: null },
     results: {},
+    practiceAlerts: practice ? CFG.practiceAlerts.map(at => ({ at, onset: null, ackAt: null, missed: false })) : [],
+    practiceMsgUntil: -1,
   };
+  $("practiceAlert").className = "";
   buildWorld(routeKey);
   buildPanel(run.dash);
   run.state.x = pads.depot.x; run.state.z = pads.depot.z;
@@ -1358,7 +1369,35 @@ function fireEvent(ev) {
 function pushAlert(ev, text) { run.alerts.push({ ev, text, t: run.t, active: true }); renderAlerts(); }
 function clearAlert(ev) { run.alerts.forEach(a => { if (a.ev === ev) a.active = false; }); renderAlerts(); }
 
+// ---------------- Practice training alerts ----------------
+function showPracticeMsg(cls, text, secs) {
+  const el = $("practiceAlert"); el.className = cls; el.textContent = text;
+  run.practiceMsgUntil = secs ? run.t + secs : -1;
+}
+function updatePracticeAlerts() {
+  run.practiceAlerts.forEach((a, i) => {
+    if (a.onset === null && run.t >= a.at) {
+      a.onset = run.t;
+      logEvent("practice_alert_onset", "training_alert_" + (i + 1));
+      showPracticeMsg("on", "PRACTICE ALERT: press A (or Space) now", 0);
+    } else if (a.onset !== null && a.ackAt === null && !a.missed && run.t - a.onset > CFG.ackTimeout) {
+      a.missed = true;
+      logEvent("practice_alert_missed", "training_alert_" + (i + 1));
+      showPracticeMsg("miss", "Missed. When you see an alert, press A.", 3);
+    }
+  });
+  if (run.practiceMsgUntil > 0 && run.t > run.practiceMsgUntil) { $("practiceAlert").className = ""; run.practiceMsgUntil = -1; }
+}
+
 function acknowledge() {
+  // Practice: a press clears the active training alert (logged separately, never mixed with real alerts)
+  const pa = run.practice && run.practiceAlerts.find(a => a.onset !== null && a.ackAt === null && !a.missed);
+  if (pa) {
+    pa.ackAt = run.t;
+    logEvent("practice_alert_ack", "rt_s=" + (run.t - pa.onset).toFixed(3));
+    showPracticeMsg("ok", "Got it! That's how you acknowledge an alert.", 2.5);
+    return;
+  }
   // Acknowledge the oldest active, not-yet-acknowledged alert
   const pending = Object.keys(run.ack).map(Number).filter(ev => run.ack[ev].ackAt === null && !run.ack[ev].missed).sort((a, b) => run.ack[a].onset - run.ack[b].onset);
   if (!pending.length) { logEvent("ack_press_no_alert"); return; }
@@ -1391,6 +1430,7 @@ function step(dt, inp) {
   // Missed-alert check
   Object.keys(run.ack).forEach(k => { const a = run.ack[k]; if (a.ackAt === null && !a.missed && run.t - a.onset > CFG.ackTimeout) { a.missed = true; logEvent("alert_missed", EV[k].key); } });
 
+  if (run.practice) updatePracticeAlerts();
   if (inp.ack) acknowledge();
 
   // Flight model: input sets target velocities in the drone's frame
@@ -1551,6 +1591,15 @@ function endTrial(reason) {
   }), 500));
 }
 
+function actualOrder() {
+  return Object.keys(run.ack).map(Number).sort((a, b) => run.ack[a].onset - run.ack[b].onset);
+}
+function minAlertGap() {
+  const on = actualOrder().map(ev => run.ack[ev].onset);
+  if (on.length < 2) return "";
+  let m = Infinity; for (let i = 1; i < on.length; i++) m = Math.min(m, on[i] - on[i - 1]);
+  return m.toFixed(1);
+}
 function buildSummary() {
   const r = (ev, field) => { const a = run.ack[ev]; if (!a) return ""; const v = a[field]; return v === null || v === undefined ? "" : (v - a.onset).toFixed(2); };
   const missed = Object.values(run.ack).filter(a => a.missed).length;
@@ -1570,6 +1619,10 @@ function buildSummary() {
     FaceVideo: run.videos && run.videos.face ? baseName() + "_face." + run.videos.face.ext : "not recorded",
     PackageDropTime_s: run.deliveredAt !== null ? run.deliveredAt.toFixed(1) : "",
     DropAttemptsOutsideZone: run.badDrops,
+    // EventOrder is the planned order; this is the order alerts actually appeared (low battery is randomized
+    // and wind only fires above windTrigger), plus the smallest gap between two alert onsets (overlap check).
+    ActualEventOrder: actualOrder().join("-"),
+    MinAlertGap_s: minAlertGap(),
   };
 }
 
@@ -1605,6 +1658,12 @@ function renderEndScreen(sum) {
   ];
   let html = cards.map(c => `<div class="stat"><div class="l">${c.l}</div><div class="v ${c.c || ""}">${c.v}</div><div class="s">${c.s || ""}</div></div>`).join("");
   if (!run.practice) html += `<div class="stat wide"><div class="l" style="margin-bottom:4px">Alerts</div>${[1, 2, 3].map(alertLine).join("")}</div>`;
+  if (run.practice) {
+    const shown = run.practiceAlerts.filter(a => a.onset !== null).length, acked = run.practiceAlerts.filter(a => a.ackAt !== null).length;
+    const okAll = shown > 0 && acked === shown;
+    html += `<div class="stat wide"><div class="l">Training alerts acknowledged</div><div class="v" style="color:${okAll ? "#3fb950" : "#f0a020"}">${acked} of ${shown}</div>` +
+      `<div class="s">${okAll ? "Ready for Trial 1." : "Remind the participant: press A as soon as they notice an alert."}</div></div>`;
+  }
   $("statCards").innerHTML = html;
   drawPathMap();
 }
