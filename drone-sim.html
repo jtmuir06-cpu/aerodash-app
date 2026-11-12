@@ -31,6 +31,16 @@
   #dropPrompt { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 16px; border-radius: 999px; font: 700 16px system-ui, sans-serif; color: #fff; white-space: nowrap; pointer-events: none; display: none; }
   #dropPrompt.ok { background: rgba(31,138,76,.92); }
   #dropPrompt.no { background: rgba(196,110,20,.92); }
+  #dropPrompt.info { background: rgba(20,40,70,.88); }
+  /* Practice-only training alert: centered in the flight view, deliberately not on either dashboard panel */
+  #practiceAlert { position: absolute; left: 50%; top: 16%; transform: translateX(-50%); max-width: 80%; padding: 14px 22px; border-radius: 12px; font: 700 20px system-ui, sans-serif; color: #fff; text-align: center; pointer-events: none; display: none; box-shadow: 0 4px 18px rgba(0,0,0,.45); zoom: var(--ui); }
+  #practiceAlert.on { display: block; background: rgba(170,40,40,.94); }
+  #practiceAlert.ok { display: block; background: rgba(31,138,76,.94); }
+  #practiceAlert.miss { display: block; background: rgba(196,110,20,.94); }
+  /* On-screen drop button (mouse/touch). Only active while landed in the drop zone. */
+  #dropBtn { position: absolute; left: 16px; bottom: 16px; zoom: var(--ui); display: none; padding: 12px 20px; font: 800 16px system-ui, sans-serif; letter-spacing: .03em; border-radius: 10px; border: 2px solid rgba(255,255,255,.85); background: rgba(40,46,56,.75); color: rgba(255,255,255,.6); cursor: not-allowed; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+  #dropBtn.ready { background: #1f8a4c; color: #fff; cursor: pointer; }
+  #dropBtn.ready:hover { filter: brightness(1.12); }
   #hud { position: absolute; left: 16px; top: 12px; font: 600 15px/1.3 system-ui, sans-serif; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.7); pointer-events: none; }
   #hud .big { font-size: 20px; }
   #ctrlStatus { position: absolute; right: 12px; top: 10px; font-size: 12px; color: #fff; background: rgba(0,0,0,.35); padding: 4px 8px; border-radius: 6px; pointer-events: none; }
@@ -186,6 +196,8 @@
     <div id="reticle"></div>
     <div id="downcam"><div id="downcamLabel">DOWN CAMERA</div></div>
     <div id="dropPrompt"></div>
+    <div id="practiceAlert"></div>
+    <button id="dropBtn" type="button" tabindex="-1">DROP PACKAGE</button>
     <div id="paused">PAUSED</div>
   </div>
   <div id="panel"></div>
@@ -208,7 +220,7 @@
       <div><label>Trial</label>
         <select id="trial">
           <option value="B" selected>Baseline rest (3 min, no flying)</option>
-          <option value="0">Practice (no alerts, up to 3 min)</option>
+          <option value="0">Practice (2 training alerts, up to 3 min)</option>
           <option value="1">Trial 1</option>
           <option value="2">Trial 2</option>
         </select></div>
@@ -234,6 +246,10 @@
         <div class="row" style="margin-top:10px"><button id="recBtn">Connect camera + screen</button></div>
       </div>
     </div>
+    <h2>Controller</h2>
+    <div class="keys">Microsoft Xbox controllers are picked up automatically. For a <b>wired third-party Xbox controller</b> (e.g. Razer Wolverine) on a Mac, click the button and choose it in Chrome's list. This turns it on. Chrome remembers it, so after the first time it reconnects by itself.</div>
+    <div class="row" style="margin-top:8px"><button id="usbPadBtn">Connect USB controller</button></div>
+    <div class="kv" id="usbPadStatus" style="margin-top:6px"></div>
     <h2>Before you start</h2>
     <div class="keys">
       1. Put the Apple Watch on the participant and start a <b>Workout (Other)</b> so heart rate is saved every few seconds. Leave it running for the whole session.<br>
@@ -241,6 +257,7 @@
       3. Connect the camera and screen above.<br>
       4. Run in this order: <b>Baseline rest → Practice → Trial 1 → Trial 2</b>.<br>
       5. Press any button on the controller so the browser detects it (top-right of the flight view).<br>
+      5b. Tell the participant before Practice: <b>"When you notice an alert, press A right away."</b> Practice shows 2 training alerts to practice this. If the end screen says fewer than 2 were acknowledged, explain again before Trial 1.<br>
       6. After Trial 2, end the workout on the watch. Heart rate is then in the iPhone Health app for export.
     </div>
     <h2>Surveys and results</h2>
@@ -255,8 +272,9 @@
     <div class="kv" id="storeMsg" style="margin-top:6px"></div>
     <h2>Controls</h2>
     <div class="keys">
-      <b>Xbox controller (Mode 2):</b> left stick = climb/descend + turn · right stick = forward/back + sideways · <code>A</code> = acknowledge alert · <code>X</code> = drop package (only works when landed inside the orange drop zone) · <code>Menu</code> = pause<br>
+      <b>Xbox controller (Mode 2):</b> left stick = climb/descend + turn · right stick = forward/back + sideways · <code>A</code> = acknowledge alert · <code>X</code> = drop package · <code>Menu</code> = pause<br>
       <b>Keyboard fallback:</b> <code>W</code><code>S</code> forward/back · <code>A</code><code>D</code> sideways · <code>↑</code><code>↓</code> climb/descend · <code>←</code><code>→</code> turn · <code>Space</code> acknowledge · <code>E</code> drop package<br>
+      <b>Drop package:</b> <code>X</code>, <code>E</code>, or the on-screen <b>DROP PACKAGE</b> button (bottom-left). It only works when landed inside the orange drop zone.<br>
       <b>Researcher keys:</b> <code>C</code> status answer correct · <code>N</code> status answer wrong · <code>P</code> pause · <code>Esc</code> end trial early
     </div>
     <div class="kv" id="gfxStatus" style="margin-top:12px">Graphics: checking…</div>
@@ -331,6 +349,7 @@ const CFG = {
   maxAlt: 90,
   trialLimit: 480,       // s, hard stop
   practiceLimit: 180,    // s
+  practiceAlerts: [30, 75], // s, neutral training alerts in Practice (flight view, not the dashboard)
   eventBase: [40, 105, 170], // s, slots for wind (arming) and status, before jitter
   lowBattWindow: [35, 170],  // s, low-battery alert time is drawn at random in this window
   eventGap: 15,          // s, minimum gap between alert times
@@ -470,18 +489,22 @@ function makePad(x, z, color, label) {
 //   walls:   [x, z, dir]  construction wall blocking the street, must climb over (forces > 30 m)
 //   bridges: [x, z, dir]  sky bridge across the street from 21 to 28 m, fly under it
 //   dir "ns" = street runs north-south (along z), "ew" = street runs east-west (along x)
+// Walls and bridges sit mid-block (the along-street coordinate is an odd multiple of 40), never in an
+// intersection: a wall in an intersection can be flown around through the cross street. The blocks on
+// both sides of each wall are always built (see buildWorld), so the only way past is over the top.
+// Each wall has >= 60 m before and after it to the nearest gate (gates are at 15 m), leaving room to climb.
 const COURSES = {
   A: {
-    out: [[0, -110, 15], [0, -240, 15], [130, -240, 15], [270, -240, 15], [400, -240, 15], [400, -400, 15], [400, -560, 15]],
+    out: [[0, -110, 15], [0, -240, 15], [130, -240, 15], [270, -240, 15], [400, -240, 15], [400, -380, 15], [400, -560, 15]],
     ret: [[560, -560, 15], [560, -400, 15], [560, -240, 15], [560, -160, 15], [420, -160, 15], [240, -160, 15], [80, -160, 15], [80, 0, 12]],
-    walls: [[200, -240, "ew"], [400, -480, "ns"], [330, -160, "ew"]],
-    bridges: [[0, -175, "ns"], [400, -320, "ns"], [560, -320, "ns"], [150, -160, "ew"]],
+    walls: [[200, -240, "ew"], [400, -440, "ns"], [360, -160, "ew"]],
+    bridges: [[0, -200, "ns"], [400, -280, "ns"], [560, -360, "ns"], [120, -160, "ew"]],
   },
   P: {
-    out: [[0, -110, 15], [0, -300, 15], [0, -360, 15]],
-    ret: [[0, -340, 15], [0, -120, 15], [0, -60, 12]],
-    walls: [[0, -240, "ns"]],
-    bridges: [[0, -170, "ns"]],
+    out: [[0, -70, 15], [0, -190, 15], [0, -360, 15]],
+    ret: [[0, -340, 15], [0, -210, 15], [0, -50, 12]],
+    walls: [[0, -280, "ns"]],
+    bridges: [[0, -120, "ns"]],
   },
 };
 
@@ -541,21 +564,33 @@ function buildWorld(routeKey) {
 
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), new THREE.MeshLambertMaterial({ color: 0x6f8f5a }));
   ground.rotation.x = -Math.PI / 2; worldGroup.add(ground);
-  const roads = new THREE.MeshLambertMaterial({ color: 0x4a4f57 });
+  // Polygon offset keeps roads drawn over the ground on GPUs with low depth precision (no flicker or "grass streets")
+  const roads = new THREE.MeshLambertMaterial({ color: 0x4a4f57, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
   // City grid. Same seed for A and B, B is mirrored, so difficulty matches.
   const rnd = mulberry32(routeKey === "P" ? 7 : 2026);
   const pitch = 80, foot = 50, extent = 760;
   const special = [pads.depot, pads.drop, ...pads.chargers];
   const bMat = [0x8a96a8, 0x9fa9b8, 0x7b8698, 0xb0b8c4, 0x6c7789].map(c => new THREE.MeshLambertMaterial({ color: c }));
+  // Blocks beside each construction wall are always built (never an open lot or cleared for a pad),
+  // so the wall can't be bypassed through an empty lot.
+  const bkey = (x, z) => Math.round(x) + "," + Math.round(z);
+  const forced = new Set();
+  C.walls.forEach(([wx, wz, dir]) => {
+    const x = mx(wx);
+    if (dir === "ns") { forced.add(bkey(x - 40, wz)); forced.add(bkey(x + 40, wz)); }
+    else { forced.add(bkey(x, wz - 40)); forced.add(bkey(x, wz + 40)); }
+  });
   for (let gx = -extent; gx <= extent; gx += pitch) {
     for (let gz = -extent; gz <= extent; gz += pitch) {
       const r1 = rnd(), r2 = rnd(), r3 = rnd();
-      if (r1 < 0.12) continue; // open lots
       // Blocks sit at odd multiples of 40 m, so streets run along multiples of 80 m (where the course is)
       const cx = gx * mirror, cz = gz;
-      const near = special.some(p => Math.hypot(p.x - cx, p.z - cz) < 48);
-      if (near) continue;
+      if (!forced.has(bkey(cx, cz))) {
+        if (r1 < 0.12) continue; // open lots
+        const near = special.some(p => Math.hypot(p.x - cx, p.z - cz) < 48);
+        if (near) continue;
+      }
       const h = 14 + Math.floor(r2 * 44);
       const w = foot - r3 * 10;
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), bMat[Math.floor(r3 * bMat.length) % bMat.length]);
@@ -578,7 +613,8 @@ function buildWorld(routeKey) {
   const stripeMat = new THREE.MeshLambertMaterial({ color: 0xf5f5f5 });
   C.walls.forEach(([wx, wz, dir]) => {
     const x = mx(wx), z = wz, alongX = dir === "ew";
-    const sx = alongX ? 4 : 32, sz = alongX ? 32 : 4;
+    // 44 m wide so the wall reaches into the buildings on both sides (at 32 m, narrow buildings left a ~2 m slot)
+    const sx = alongX ? 4 : 44, sz = alongX ? 44 : 4;
     const w = new THREE.Mesh(new THREE.BoxGeometry(sx, CFG.wallH, sz), wallMat); w.position.set(x, CFG.wallH / 2, z); worldGroup.add(w);
     for (let k = 4; k < CFG.wallH; k += 8) {
       const st = new THREE.Mesh(new THREE.BoxGeometry(sx + 0.2, 1.6, sz + 0.2), stripeMat); st.position.set(x, k, z); worldGroup.add(st);
@@ -646,16 +682,103 @@ document.addEventListener("webkitfullscreenchange", () => setTimeout(resize, 50)
 const keys = {};
 let padConnected = null;
 window.addEventListener("gamepadconnected", e => { padConnected = e.gamepad.id; updateCtrlStatus(); });
-window.addEventListener("gamepaddisconnected", () => { padConnected = null; updateCtrlStatus(); });
+window.addEventListener("gamepaddisconnected", () => { padConnected = usbPad.pad ? usbPad.pad.id : null; updateCtrlStatus(); });
 function updateCtrlStatus() { $("ctrlStatus").textContent = padConnected ? "Controller: " + padConnected.slice(0, 40) : "Controller: not detected (press a button)"; }
 updateCtrlStatus();
+
+// ---------------------------------------------------------------------
+// Wired third-party Xbox controllers over WebUSB (e.g. Razer Wolverine Ultimate).
+// On macOS, Chrome's Gamepad API only recognises Microsoft-made Xbox pads, and macOS has no
+// driver for third-party ones, so they stay dark and invisible. Here we speak the Xbox One USB
+// protocol (GIP) directly: send the power-on packet, read input reports, and expose a
+// Gamepad-like object in the standard mapping that readInput() uses like any other pad.
+// Chrome remembers the permission, so after the first "Connect USB controller" click the pad
+// reconnects automatically on page load and when it is plugged back in.
+// ---------------------------------------------------------------------
+const usbPad = { dev: null, pad: null, epIn: 1, epOut: 1, seq: 0 };
+const GIP_FILTER = { classCode: 0xff, subclassCode: 0x47, protocolCode: 0xd0 };
+function usbPadStatus(msg) { const el = $("usbPadStatus"); if (el) el.textContent = msg; }
+async function usbPadSend(bytes) {
+  const pkt = new Uint8Array(bytes); pkt[2] = usbPad.seq = (usbPad.seq + 1) & 0xff;
+  await usbPad.dev.transferOut(usbPad.epOut, pkt);
+}
+async function usbPadOpen(dev) {
+  if (usbPad.dev || usbPad.opening) return;                          // one pad at a time
+  usbPad.opening = true;
+  try {
+    await dev.open();
+    if (!dev.configuration) await dev.selectConfiguration(1);
+    const intf = dev.configuration.interfaces.find(i => i.alternate.interfaceClass === 0xff && i.alternate.endpoints.length >= 2);
+    if (!intf) throw new Error("no Xbox data interface on this device");
+    await dev.claimInterface(intf.interfaceNumber);
+    for (const ep of intf.alternate.endpoints) { if (ep.direction === "in") usbPad.epIn = ep.endpointNumber; else usbPad.epOut = ep.endpointNumber; }
+    usbPad.dev = dev;
+    usbPad.pad = { id: (dev.productName || "Xbox controller") + " (USB)", connected: true, mapping: "standard",
+      axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+    await usbPadSend([0x05, 0x20, 0, 0x01, 0x00]);                    // GIP power-on: wakes the pad
+    padConnected = usbPad.pad.id; updateCtrlStatus();
+    usbPadStatus("Connected: " + usbPad.pad.id);
+    usbPadLoop(dev);
+  } catch (e) {
+    usbPad.dev = null; usbPad.pad = null;
+    usbPadStatus("Could not connect: " + e.message);
+    try { await dev.close(); } catch (_) {}
+  } finally { usbPad.opening = false; }
+}
+function usbPadLost(msg) {
+  usbPad.dev = null; usbPad.pad = null;
+  const gps = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
+  const other = gps.find(g => g && g.connected);
+  padConnected = other ? other.id : null; updateCtrlStatus();
+  usbPadStatus(msg || "USB controller disconnected.");
+}
+function usbPadParse(d) {
+  const p = usbPad.pad, type = d.getUint8(0);
+  if (type === 0x20 && d.byteLength >= 18) {                           // input report
+    const b4 = d.getUint8(4), b5 = d.getUint8(5);
+    const ax = (o, flip) => Math.max(-1, Math.min(1, d.getInt16(o, true) / 32767)) * (flip ? -1 : 1);
+    p.axes[0] = ax(10); p.axes[1] = ax(12, true); p.axes[2] = ax(14); p.axes[3] = ax(16, true);
+    const lt = Math.min(1, d.getUint16(6, true) / 1023), rt = Math.min(1, d.getUint16(8, true) / 1023);
+    const set = (i, on, v) => { p.buttons[i].pressed = !!on; p.buttons[i].value = v !== undefined ? v : (on ? 1 : 0); };
+    set(0, b4 & 0x10); set(1, b4 & 0x20); set(2, b4 & 0x40); set(3, b4 & 0x80);   // A B X Y
+    set(4, b5 & 0x10); set(5, b5 & 0x20); set(6, lt > 0.1, lt); set(7, rt > 0.1, rt); // LB RB LT RT
+    set(8, b4 & 0x08); set(9, b4 & 0x04); set(10, b5 & 0x40); set(11, b5 & 0x80);  // View Menu LS RS
+    set(12, b5 & 0x01); set(13, b5 & 0x02); set(14, b5 & 0x04); set(15, b5 & 0x08); // d-pad
+  } else if (type === 0x07 && d.byteLength >= 5) {                    // Xbox (guide) button
+    p.buttons[16].pressed = !!(d.getUint8(4) & 1); p.buttons[16].value = p.buttons[16].pressed ? 1 : 0;
+    if (d.getUint8(1) & 0x10) {                                        // pad wants an acknowledgement
+      const ack = new Uint8Array([0x01, 0x20, d.getUint8(2), 0x09, 0x00, 0x07, 0x20, 0x02, 0, 0, 0, 0, 0]);
+      usbPad.dev.transferOut(usbPad.epOut, ack).catch(() => {});
+    }
+  }
+}
+async function usbPadLoop(dev) {
+  while (usbPad.dev === dev) {
+    let r;
+    try { r = await dev.transferIn(usbPad.epIn, 64); } catch (e) { if (usbPad.dev === dev) usbPadLost("USB controller stopped responding: " + e.message); return; }
+    if (r.status === "stall") { try { await dev.clearHalt("in", usbPad.epIn); } catch (_) {} continue; }
+    if (r.status === "ok" && r.data && r.data.byteLength) usbPadParse(r.data);
+  }
+}
+if (navigator.usb) {
+  navigator.usb.addEventListener("connect", e => usbPadOpen(e.device));
+  navigator.usb.addEventListener("disconnect", e => { if (e.device === usbPad.dev) usbPadLost(); });
+  navigator.usb.getDevices().then(ds => { if (ds.length) usbPadOpen(ds[0]); }).catch(() => {});
+  $("usbPadBtn").addEventListener("click", async () => {
+    try { await usbPadOpen(await navigator.usb.requestDevice({ filters: [GIP_FILTER] })); }
+    catch (e) { if (e.name !== "NotFoundError") usbPadStatus("Could not connect: " + e.message); }
+  });
+} else {
+  $("usbPadBtn").disabled = true;
+  usbPadStatus("This browser has no WebUSB. Use Chrome (opened from https:// or localhost).");
+}
 
 const dz = (v) => Math.abs(v) < CFG.deadzone ? 0 : (v - Math.sign(v) * CFG.deadzone) / (1 - CFG.deadzone);
 let prevBtn = {};
 function readInput() {
   const inp = { throttle: 0, yaw: 0, pitch: 0, roll: 0, ack: false, pause: false, drop: false };
   const gps = navigator.getGamepads ? navigator.getGamepads() : [];
-  const gp = Array.from(gps).find(g => g && g.connected);
+  const gp = Array.from(gps).find(g => g && g.connected) || usbPad.pad;
   if (gp) {
     if (!padConnected) { padConnected = gp.id; updateCtrlStatus(); }
     inp.yaw = dz(gp.axes[0] || 0);
@@ -683,13 +806,30 @@ window.addEventListener("keydown", e => {
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   if (e.code === "Space") keyAck = true;
-  if (e.code === "KeyE") keyDrop = true;
+  if (e.code === "KeyE" || e.code === "KeyX") keyDrop = true;
   if (e.code === "KeyP") keyPause = true;
   if (e.code === "KeyC") researcherStatus(true);
   if (e.code === "KeyN") researcherStatus(false);
   if (e.code === "Escape") endTrial("ended_by_researcher");
 });
-window.addEventListener("keyup", e => { keys[e.code] = false; });
+window.addEventListener("keyup", e => { keys[e.code] = false; if (run && run.active && e.code === "Space") e.preventDefault(); });
+// On-screen drop button. mousedown preventDefault keeps it from taking keyboard focus,
+// so a later Space (acknowledge) can't "click" it by accident.
+$("dropBtn").addEventListener("mousedown", e => e.preventDefault());
+$("dropBtn").addEventListener("click", () => { if (run && run.active && !run.paused) keyDrop = true; });
+
+// Fullscreen helpers. Keyboard Lock lets Esc reach the page (to end a trial) instead of
+// Chrome using the first press to leave fullscreen; holding Esc still exits fullscreen.
+function enterFullscreen() {
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  try {
+    const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req) return;
+    const pr = req.call(el);
+    const lock = () => { try { if (navigator.keyboard && navigator.keyboard.lock) navigator.keyboard.lock(["Escape"]).catch(() => {}); } catch (e) {} };
+    if (pr && pr.then) pr.then(lock, () => {}); else lock();
+  } catch (e) { /* fullscreen is optional; keep going */ }
+}
 
 // =====================================================================
 // Dashboard panels
@@ -1115,7 +1255,7 @@ function startBaseline() {
     charging: { need: false }, wind: { active: false },
   };
   $("setup").classList.remove("show");
-  try { const el = document.documentElement; const req = el.requestFullscreen || el.webkitRequestFullscreen; if (req) { const pr = req.call(el); if (pr && pr.catch) pr.catch(() => {}); } } catch (e) {}
+  enterFullscreen();
   setTimeout(() => {
     startRecording();
     syncFlash("START", () => {
@@ -1175,7 +1315,10 @@ function startTrial() {
     devSum: 0, devN: 0, deliveredAt: null, endReason: "",
     status: { pendingSince: null, result: null, alert: null },
     results: {},
+    practiceAlerts: practice ? CFG.practiceAlerts.map(at => ({ at, onset: null, ackAt: null, missed: false })) : [],
+    practiceMsgUntil: -1,
   };
+  $("practiceAlert").className = "";
   buildWorld(routeKey);
   buildPanel(run.dash);
   run.state.x = pads.depot.x; run.state.z = pads.depot.z;
@@ -1188,11 +1331,7 @@ function startTrial() {
   paintGates();
   renderAlerts(); updatePanel();
   $("setup").classList.remove("show");
-  try {
-    const el = document.documentElement;
-    const req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (req) { const pr = req.call(el); if (pr && pr.catch) pr.catch(() => {}); }
-  } catch (e) { /* fullscreen is optional; keep going */ }
+  enterFullscreen();
   setTimeout(() => { resize(); startRecording(); syncFlash("START", () => countdown(3, () => { run.active = true; run.lastFrame = performance.now(); logEvent("trial_start", `group=${run.group};route=${routeKey};order=${order.join("-")};planned_s=${run.schedule.map(e => EV[e.ev].key + "@" + e.at).join("|")};wind_fires_when_above_${CFG.windTrigger}m;gates=${totalGates()}`); })); }, 300);
 }
 
@@ -1230,7 +1369,35 @@ function fireEvent(ev) {
 function pushAlert(ev, text) { run.alerts.push({ ev, text, t: run.t, active: true }); renderAlerts(); }
 function clearAlert(ev) { run.alerts.forEach(a => { if (a.ev === ev) a.active = false; }); renderAlerts(); }
 
+// ---------------- Practice training alerts ----------------
+function showPracticeMsg(cls, text, secs) {
+  const el = $("practiceAlert"); el.className = cls; el.textContent = text;
+  run.practiceMsgUntil = secs ? run.t + secs : -1;
+}
+function updatePracticeAlerts() {
+  run.practiceAlerts.forEach((a, i) => {
+    if (a.onset === null && run.t >= a.at) {
+      a.onset = run.t;
+      logEvent("practice_alert_onset", "training_alert_" + (i + 1));
+      showPracticeMsg("on", "PRACTICE ALERT: press A (or Space) now", 0);
+    } else if (a.onset !== null && a.ackAt === null && !a.missed && run.t - a.onset > CFG.ackTimeout) {
+      a.missed = true;
+      logEvent("practice_alert_missed", "training_alert_" + (i + 1));
+      showPracticeMsg("miss", "Missed. When you see an alert, press A.", 3);
+    }
+  });
+  if (run.practiceMsgUntil > 0 && run.t > run.practiceMsgUntil) { $("practiceAlert").className = ""; run.practiceMsgUntil = -1; }
+}
+
 function acknowledge() {
+  // Practice: a press clears the active training alert (logged separately, never mixed with real alerts)
+  const pa = run.practice && run.practiceAlerts.find(a => a.onset !== null && a.ackAt === null && !a.missed);
+  if (pa) {
+    pa.ackAt = run.t;
+    logEvent("practice_alert_ack", "rt_s=" + (run.t - pa.onset).toFixed(3));
+    showPracticeMsg("ok", "Got it! That's how you acknowledge an alert.", 2.5);
+    return;
+  }
   // Acknowledge the oldest active, not-yet-acknowledged alert
   const pending = Object.keys(run.ack).map(Number).filter(ev => run.ack[ev].ackAt === null && !run.ack[ev].missed).sort((a, b) => run.ack[a].onset - run.ack[b].onset);
   if (!pending.length) { logEvent("ack_press_no_alert"); return; }
@@ -1263,6 +1430,7 @@ function step(dt, inp) {
   // Missed-alert check
   Object.keys(run.ack).forEach(k => { const a = run.ack[k]; if (a.ackAt === null && !a.missed && run.t - a.onset > CFG.ackTimeout) { a.missed = true; logEvent("alert_missed", EV[k].key); } });
 
+  if (run.practice) updatePracticeAlerts();
   if (inp.ack) acknowledge();
 
   // Flight model: input sets target velocities in the drone's frame
@@ -1352,6 +1520,7 @@ function step(dt, inp) {
   }
   const tgt = pads.depot;
   const onTarget = run.phase === "return" && Math.hypot(tgt.x - s.x, tgt.z - s.z) < CFG.padRadius;
+  run.onDepot = landed && onTarget;
   if (landed && onTarget && !run.charging.need) {
     run.padHold += dt;
     if (run.padHold >= CFG.landHold) {
@@ -1422,6 +1591,15 @@ function endTrial(reason) {
   }), 500));
 }
 
+function actualOrder() {
+  return Object.keys(run.ack).map(Number).sort((a, b) => run.ack[a].onset - run.ack[b].onset);
+}
+function minAlertGap() {
+  const on = actualOrder().map(ev => run.ack[ev].onset);
+  if (on.length < 2) return "";
+  let m = Infinity; for (let i = 1; i < on.length; i++) m = Math.min(m, on[i] - on[i - 1]);
+  return m.toFixed(1);
+}
 function buildSummary() {
   const r = (ev, field) => { const a = run.ack[ev]; if (!a) return ""; const v = a[field]; return v === null || v === undefined ? "" : (v - a.onset).toFixed(2); };
   const missed = Object.values(run.ack).filter(a => a.missed).length;
@@ -1441,6 +1619,10 @@ function buildSummary() {
     FaceVideo: run.videos && run.videos.face ? baseName() + "_face." + run.videos.face.ext : "not recorded",
     PackageDropTime_s: run.deliveredAt !== null ? run.deliveredAt.toFixed(1) : "",
     DropAttemptsOutsideZone: run.badDrops,
+    // EventOrder is the planned order; this is the order alerts actually appeared (low battery is randomized
+    // and wind only fires above windTrigger), plus the smallest gap between two alert onsets (overlap check).
+    ActualEventOrder: actualOrder().join("-"),
+    MinAlertGap_s: minAlertGap(),
   };
 }
 
@@ -1476,6 +1658,12 @@ function renderEndScreen(sum) {
   ];
   let html = cards.map(c => `<div class="stat"><div class="l">${c.l}</div><div class="v ${c.c || ""}">${c.v}</div><div class="s">${c.s || ""}</div></div>`).join("");
   if (!run.practice) html += `<div class="stat wide"><div class="l" style="margin-bottom:4px">Alerts</div>${[1, 2, 3].map(alertLine).join("")}</div>`;
+  if (run.practice) {
+    const shown = run.practiceAlerts.filter(a => a.onset !== null).length, acked = run.practiceAlerts.filter(a => a.ackAt !== null).length;
+    const okAll = shown > 0 && acked === shown;
+    html += `<div class="stat wide"><div class="l">Training alerts acknowledged</div><div class="v" style="color:${okAll ? "#3fb950" : "#f0a020"}">${acked} of ${shown}</div>` +
+      `<div class="s">${okAll ? "Ready for Trial 1." : "Remind the participant: press A as soon as they notice an alert."}</div></div>`;
+  }
   $("statCards").innerHTML = html;
   drawPathMap();
 }
@@ -1576,7 +1764,8 @@ const camPos = new THREE.Vector3(0, 12, 20);
 function loop(now) {
   requestAnimationFrame(loop);
   if (run && run.active) {
-    const dt = Math.min(0.05, (now - run.lastFrame) / 1000); run.lastFrame = now;
+    // Clamp to [0, 50 ms]: a frame timestamp can be slightly older than lastFrame (set by a timer), which must not run time backwards
+    const dt = clamp((now - run.lastFrame) / 1000, 0, 0.05); run.lastFrame = Math.max(now, run.lastFrame);
     const inp = readInput();
     if (keyAck) { inp.ack = true; keyAck = false; }
     if (keyDrop) { inp.drop = true; keyDrop = false; }
@@ -1587,9 +1776,17 @@ function loop(now) {
     const gl = gateList();
     $("hudTarget").textContent = run.gi < gl.length ? `Gate ${gateNumber()} of ${totalGates()}` : "Target: " + (run.phase === "outbound" ? "Drop zone (land, then drop)" : "Depot (land)");
     const dp = $("dropPrompt");
-    if (run.inDropZone) { dp.textContent = "In the drop zone · press X to drop the package"; dp.className = "ok"; dp.style.display = "block"; }
-    else if (run.t < run.dropMsgUntil) { dp.textContent = "Land inside the orange drop zone to drop the package"; dp.className = "no"; dp.style.display = "block"; }
+    const prompt = (text, cls) => { dp.textContent = text; dp.className = cls; dp.style.display = "block"; };
+    const statusUnscored = run.ack[3] && run.status.result === null && !run.ack[3].missed;
+    if (run.inDropZone) prompt("In the drop zone · press X / E or click DROP PACKAGE", "ok");
+    else if (run.t < run.dropMsgUntil) prompt("Land inside the orange drop zone to drop the package", "no");
+    else if (run.charging.need && run.chargeHoldT > 0) prompt(`Charging… ${Math.max(0, CFG.chargeHold - run.chargeHoldT).toFixed(1)} s`, "info");
+    else if (run.onDepot && !run.charging.need && statusUnscored) prompt("Landed · waiting for the researcher to score the status answer (C / N)", "info");
+    else if (run.onDepot && !run.charging.need) prompt("Landed at the depot · hold still", "info");
     else dp.style.display = "none";
+    const db = $("dropBtn");
+    db.style.display = run.phase === "outbound" && run.deliveredAt === null ? "block" : "none";
+    db.className = run.inDropZone ? "ready" : "";
     $("hudAlt").textContent = "ALT " + Math.round(run.state.y) + " m";
     $("hudTime").textContent = fmtT(run.t);
   } else if (run) {
