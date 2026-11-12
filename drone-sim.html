@@ -16,6 +16,21 @@
   #panel { flex: 1 1 auto; height: 100%; overflow: hidden; }
 
   /* Minimal flight HUD: no battery, wind, or alerts here on purpose */
+  :root { --ui: 1; }
+  /* Screens scale up on large / high-resolution monitors (set by applyUiScale) */
+  #setup > .card, #summary > .card, .svcard { zoom: var(--ui); }
+  #hud, #ctrlStatus, #paused, #dropPrompt, #downcamLabel { zoom: var(--ui); }
+  .nimbus, .aero { zoom: var(--ui); height: calc(100% / var(--ui)) !important; }
+  #reticle { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; pointer-events: none; display: none; }
+  #reticle::before, #reticle::after { content: ""; position: absolute; background: rgba(255,255,255,.75); box-shadow: 0 0 2px rgba(0,0,0,.6); }
+  #reticle::before { left: 12px; top: 0; width: 2px; height: 26px; }
+  #reticle::after { top: 12px; left: 0; height: 2px; width: 26px; }
+  #downcam { position: absolute; right: 14px; bottom: 14px; width: 24%; aspect-ratio: 4 / 3; border: 2px solid rgba(255,255,255,.85); border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,.45); pointer-events: none; display: none; }
+  #downcam::after { content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid rgba(255,255,255,.8); border-radius: 50%; }
+  #downcamLabel { position: absolute; left: 6px; top: 4px; font: 700 11px system-ui, sans-serif; color: #fff; letter-spacing: .06em; text-shadow: 0 1px 2px rgba(0,0,0,.8); }
+  #dropPrompt { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 16px; border-radius: 999px; font: 700 16px system-ui, sans-serif; color: #fff; white-space: nowrap; pointer-events: none; display: none; }
+  #dropPrompt.ok { background: rgba(31,138,76,.92); }
+  #dropPrompt.no { background: rgba(196,110,20,.92); }
   #hud { position: absolute; left: 16px; top: 12px; font: 600 15px/1.3 system-ui, sans-serif; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.7); pointer-events: none; }
   #hud .big { font-size: 20px; }
   #ctrlStatus { position: absolute; right: 12px; top: 10px; font-size: 12px; color: #fff; background: rgba(0,0,0,.35); padding: 4px 8px; border-radius: 6px; pointer-events: none; }
@@ -168,6 +183,9 @@
   <div id="flight">
     <div id="hud"><div class="big" id="hudTarget">Target: —</div><div id="hudAlt">ALT — m</div><div id="hudTime">00:00</div></div>
     <div id="ctrlStatus">Controller: not detected</div>
+    <div id="reticle"></div>
+    <div id="downcam"><div id="downcamLabel">DOWN CAMERA</div></div>
+    <div id="dropPrompt"></div>
     <div id="paused">PAUSED</div>
   </div>
   <div id="panel"></div>
@@ -237,8 +255,8 @@
     <div class="kv" id="storeMsg" style="margin-top:6px"></div>
     <h2>Controls</h2>
     <div class="keys">
-      <b>Xbox controller (Mode 2):</b> left stick = climb/descend + turn · right stick = forward/back + sideways · <code>A</code> = acknowledge alert · <code>Menu</code> = pause<br>
-      <b>Keyboard fallback:</b> <code>W</code><code>S</code> forward/back · <code>A</code><code>D</code> sideways · <code>↑</code><code>↓</code> climb/descend · <code>←</code><code>→</code> turn · <code>Space</code> acknowledge<br>
+      <b>Xbox controller (Mode 2):</b> left stick = climb/descend + turn · right stick = forward/back + sideways · <code>A</code> = acknowledge alert · <code>X</code> = drop package (only works when landed inside the orange drop zone) · <code>Menu</code> = pause<br>
+      <b>Keyboard fallback:</b> <code>W</code><code>S</code> forward/back · <code>A</code><code>D</code> sideways · <code>↑</code><code>↓</code> climb/descend · <code>←</code><code>→</code> turn · <code>Space</code> acknowledge · <code>E</code> drop package<br>
       <b>Researcher keys:</b> <code>C</code> status answer correct · <code>N</code> status answer wrong · <code>P</code> pause · <code>Esc</code> end trial early
     </div>
     <div class="kv" id="gfxStatus" style="margin-top:12px">Graphics: checking…</div>
@@ -319,6 +337,8 @@ const CFG = {
   windTrigger: 31,       // m, wind warning only fires once the drone climbs above this
   gateRadius: 7.5,       // m, fly within this distance of a gate's center to pass it
   wallH: 30, bridgeLow: 21, bridgeHigh: 28,
+  camHeight: 1.2,        // m above the drone body, first-person camera
+  camTilt: 0.2,          // rad (~11°) downward tilt of the first-person camera
   ackTimeout: 15,        // s until an alert counts as missed
   windAlt: 30,           // m, must descend below this
   windDrift: 3.2,        // m/s pushed sideways while above windAlt during warning
@@ -417,7 +437,10 @@ flightEl.prepend(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9cc7e8);
 scene.fog = new THREE.Fog(0x9cc7e8, 250, 900);
-const camera = new THREE.PerspectiveCamera(65, 1, 0.5, 2000);
+const camera = new THREE.PerspectiveCamera(75, 1, 0.3, 2000);
+camera.rotation.order = "YXZ";
+// Down-facing camera shown in the corner inset, for landing on pads
+const downCam = new THREE.PerspectiveCamera(80, 4 / 3, 0.1, 600);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x556677, 0.9));
 const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(300, 500, 200); scene.add(sun);
 
@@ -630,7 +653,7 @@ updateCtrlStatus();
 const dz = (v) => Math.abs(v) < CFG.deadzone ? 0 : (v - Math.sign(v) * CFG.deadzone) / (1 - CFG.deadzone);
 let prevBtn = {};
 function readInput() {
-  const inp = { throttle: 0, yaw: 0, pitch: 0, roll: 0, ack: false, pause: false };
+  const inp = { throttle: 0, yaw: 0, pitch: 0, roll: 0, ack: false, pause: false, drop: false };
   const gps = navigator.getGamepads ? navigator.getGamepads() : [];
   const gp = Array.from(gps).find(g => g && g.connected);
   if (gp) {
@@ -640,9 +663,11 @@ function readInput() {
     inp.roll = dz(gp.axes[2] || 0);
     inp.pitch = -dz(gp.axes[3] || 0);
     const a = gp.buttons[0] && gp.buttons[0].pressed, menu = gp.buttons[9] && gp.buttons[9].pressed;
+    const xb = gp.buttons[2] && gp.buttons[2].pressed;   // X = drop package
+    if (xb && !prevBtn.x) inp.drop = true;
     if (a && !prevBtn.a) inp.ack = true;
     if (menu && !prevBtn.menu) inp.pause = true;
-    prevBtn = { a, menu };
+    prevBtn = { a, menu, x: xb };
   }
   if (keys["KeyW"]) inp.pitch = 1; if (keys["KeyS"]) inp.pitch = -1;
   if (keys["KeyD"]) inp.roll = 1; if (keys["KeyA"]) inp.roll = -1;
@@ -650,7 +675,7 @@ function readInput() {
   if (keys["ArrowRight"]) inp.yaw = 1; if (keys["ArrowLeft"]) inp.yaw = -1;
   return inp;
 }
-let keyAck = false, keyPause = false;
+let keyAck = false, keyPause = false, keyDrop = false;
 window.addEventListener("keydown", e => {
   if (run && run.baseline && e.code === "Escape") { endBaseline("ended_by_researcher"); return; }
   if (!run || !run.active) return;
@@ -658,6 +683,7 @@ window.addEventListener("keydown", e => {
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   if (e.code === "Space") keyAck = true;
+  if (e.code === "KeyE") keyDrop = true;
   if (e.code === "KeyP") keyPause = true;
   if (e.code === "KeyC") researcherStatus(true);
   if (e.code === "KeyN") researcherStatus(false);
@@ -1144,7 +1170,7 @@ function startTrial() {
     order, schedule: order.map((ev, i) => ({ ev, at: times[i], fired: false, armed: false })), gi: 0, path: [],
     t: 0, phase: "outbound", events: [], tele: [], teleAcc: 0,
     state: { x: 0, y: 0, z: 0, yaw: 0, vx: 0, vz: 0, vy: 0, speed: 0, battery: 100 },
-    alerts: [], ack: {}, collisions: 0, lastHit: -10, inContact: false, padHold: 0, chargeHoldT: 0,
+    alerts: [], ack: {}, collisions: 0, lastHit: -10, inContact: false, padHold: 0, chargeHoldT: 0, badDrops: 0, dropMsgUntil: -1, inDropZone: false,
     charging: { need: false }, wind: { active: false, until: 0 },
     devSum: 0, devN: 0, deliveredAt: null, endReason: "",
     status: { pendingSince: null, result: null, alert: null },
@@ -1156,6 +1182,9 @@ function startTrial() {
   // Face the drop point
   run.state.yaw = Math.atan2(-(pads.drop.x - pads.depot.x), -(pads.drop.z - pads.depot.z));
   drone.userData.pkg.visible = true;
+  // Box left on the pad after a drop (lives in the world group so it is cleared each trial)
+  run.droppedPkg = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.8, 1.1), new THREE.MeshLambertMaterial({ color: 0xc8a165 }));
+  run.droppedPkg.visible = false; worldGroup.add(run.droppedPkg);
   paintGates();
   renderAlerts(); updatePanel();
   $("setup").classList.remove("show");
@@ -1303,17 +1332,31 @@ function step(dt, inp) {
       }
     } else run.chargeHoldT = 0;
   }
-  const tgt = run.phase === "outbound" ? pads.drop : pads.depot;
-  const onTarget = Math.hypot(tgt.x - s.x, tgt.z - s.z) < CFG.padRadius;
+  const markRest = () => { const l = gateList(); while (run.gi < l.length) { l[run.gi].missed = true; logEvent("gate_missed", "gate_" + gateNumber()); run.gi++; } };
+  // Package drop: only allowed while landed inside the drop zone
+  run.inDropZone = run.phase === "outbound" && landed && Math.hypot(pads.drop.x - s.x, pads.drop.z - s.z) < CFG.padRadius;
+  if (inp.drop) {
+    if (run.phase !== "outbound") {
+      logEvent("drop_pressed_no_package");
+    } else if (run.inDropZone) {
+      markRest();
+      run.phase = "return"; run.gi = 0; run.deliveredAt = run.t; run.inDropZone = false;
+      drone.userData.pkg.visible = false;
+      if (run.droppedPkg) { run.droppedPkg.position.set(s.x, 0.3, s.z); run.droppedPkg.visible = true; }
+      logEvent("package_delivered", "dropped_in_zone"); paintGates();
+    } else {
+      const why = s.y > CFG.landAlt ? "not_landed" : (s.speed >= 1.5 ? "still_moving" : "outside_drop_zone");
+      run.badDrops++; run.dropMsgUntil = run.t + 2.5;
+      logEvent("drop_attempt_outside_zone", why);
+    }
+  }
+  const tgt = pads.depot;
+  const onTarget = run.phase === "return" && Math.hypot(tgt.x - s.x, tgt.z - s.z) < CFG.padRadius;
   if (landed && onTarget && !run.charging.need) {
     run.padHold += dt;
     if (run.padHold >= CFG.landHold) {
       run.padHold = 0;
-      const markRest = () => { const l = gateList(); while (run.gi < l.length) { l[run.gi].missed = true; logEvent("gate_missed", "gate_" + gateNumber()); run.gi++; } };
-      if (run.phase === "outbound") {
-        markRest();
-        run.phase = "return"; run.gi = 0; run.deliveredAt = run.t; drone.userData.pkg.visible = false; logEvent("package_delivered"); paintGates();
-      } else {
+      {
         markRest(); paintGates();
         const allFired = run.schedule.every(e => e.fired || e.ev === 2);
         const statusDone = !run.ack[3] || run.status.result !== null || run.ack[3].missed;
@@ -1396,6 +1439,8 @@ function buildSummary() {
     FinalBattery_pct: run.state.battery.toFixed(0), Date: ymd(),
     ScreenVideo: run.videos && run.videos.screen ? baseName() + "_screen." + run.videos.screen.ext : "not recorded",
     FaceVideo: run.videos && run.videos.face ? baseName() + "_face." + run.videos.face.ext : "not recorded",
+    PackageDropTime_s: run.deliveredAt !== null ? run.deliveredAt.toFixed(1) : "",
+    DropAttemptsOutsideZone: run.badDrops,
   };
 }
 
@@ -1534,38 +1579,55 @@ function loop(now) {
     const dt = Math.min(0.05, (now - run.lastFrame) / 1000); run.lastFrame = now;
     const inp = readInput();
     if (keyAck) { inp.ack = true; keyAck = false; }
+    if (keyDrop) { inp.drop = true; keyDrop = false; }
     if (keyPause) { inp.pause = true; keyPause = false; }
     if (inp.pause) { run.paused = !run.paused; $("paused").style.display = run.paused ? "flex" : "none"; logEvent(run.paused ? "pause" : "resume"); }
     if (!run.paused) step(dt, inp);
     if (run && run.active && (run.teleAcc === 0)) updatePanel();
     const gl = gateList();
-    $("hudTarget").textContent = run.gi < gl.length ? `Gate ${gateNumber()} of ${totalGates()}` : "Target: " + (run.phase === "outbound" ? "Drop point (land)" : "Depot (land)");
+    $("hudTarget").textContent = run.gi < gl.length ? `Gate ${gateNumber()} of ${totalGates()}` : "Target: " + (run.phase === "outbound" ? "Drop zone (land, then drop)" : "Depot (land)");
+    const dp = $("dropPrompt");
+    if (run.inDropZone) { dp.textContent = "In the drop zone · press X to drop the package"; dp.className = "ok"; dp.style.display = "block"; }
+    else if (run.t < run.dropMsgUntil) { dp.textContent = "Land inside the orange drop zone to drop the package"; dp.className = "no"; dp.style.display = "block"; }
+    else dp.style.display = "none";
     $("hudAlt").textContent = "ALT " + Math.round(run.state.y) + " m";
     $("hudTime").textContent = fmtT(run.t);
   } else if (run) {
     readInput();
   }
+  let showDown = false;
   if (run) {
     const s = run.state;
     drone.position.set(s.x, s.y + 1.0, s.z);
-    drone.rotation.set(0, 0, 0);
-    drone.rotation.y = s.yaw;
-    // Lean in the direction of travel for feel
-    const lf = (s.vx * -Math.sin(s.yaw) + s.vz * -Math.cos(s.yaw)) / CFG.maxSpeed;
-    const ls = (s.vx * Math.cos(s.yaw) + s.vz * -Math.sin(s.yaw)) / CFG.maxSpeed;
-    drone.rotateX(-0.25 * lf); drone.rotateZ(-0.25 * ls);
-    // Chase camera
-    const back = new THREE.Vector3(Math.sin(s.yaw) * 18, 8, Math.cos(s.yaw) * 18);
-    const want = new THREE.Vector3(s.x, s.y + 1, s.z).add(back);
-    camPos.lerp(want, 0.08);
-    camera.position.copy(camPos);
-    camera.lookAt(s.x, s.y + 2, s.z);
+    drone.rotation.set(0, s.yaw, 0);
+    drone.visible = false;   // first-person: the operator sees from the drone's camera
+    // First-person camera, gimbal-stabilized (no roll or lean), tilted slightly down
+    camera.position.set(s.x, s.y + CFG.camHeight, s.z);
+    camera.rotation.set(-CFG.camTilt, s.yaw, 0);
+    showDown = !run.baseline;
     // Beacon marks the mission target only, so the low-battery alert is not given away in the flight view
     const tgt = missionTarget(); if (beacon) { beacon.visible = !(run.gi < gateList().length); beacon.position.set(tgt.x, 80, tgt.z); }
     // Gentle spin on the current gate so it stands out
     const cg = gateList()[run.gi]; if (cg && cg.mesh) cg.mesh.children[0].rotation.z += 0.01;
   }
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, flightEl.clientWidth, flightEl.clientHeight);
   renderer.render(scene, camera);
+  // Down camera inset (bottom-right), looking straight down with forward at the top
+  const dc = $("downcam");
+  dc.style.display = showDown ? "block" : "none";
+  $("reticle").style.display = showDown ? "block" : "none";
+  if (showDown) {
+    const s = run.state, fr = flightEl.getBoundingClientRect(), r = dc.getBoundingClientRect();
+    const x = r.left - fr.left + 2, w = r.width - 4, h = r.height - 4, y = fr.bottom - r.bottom + 2;
+    downCam.aspect = w / h; downCam.updateProjectionMatrix();
+    downCam.position.set(s.x, s.y + 1.6, s.z);
+    downCam.up.set(-Math.sin(s.yaw), 0, -Math.cos(s.yaw));
+    downCam.lookAt(s.x, s.y - 50, s.z);
+    renderer.setScissorTest(true); renderer.setScissor(x, y, w, h); renderer.setViewport(x, y, w, h);
+    renderer.render(scene, downCam);
+    renderer.setScissorTest(false); renderer.setViewport(0, 0, flightEl.clientWidth, flightEl.clientHeight);
+  }
 }
 
 // Idle scene behind the setup screen
@@ -1573,6 +1635,13 @@ run = null;
 buildWorld("A");
 camera.position.set(60, 50, 80); camera.lookAt(0, 0, -100);
 resize();
+// Scale screens and panels to the window (large / high-resolution monitors were showing a tiny setup screen)
+function applyUiScale() {
+  const sc = Math.max(1, Math.min(2.4, Math.min(window.innerWidth / 1440, window.innerHeight / 860)));
+  document.documentElement.style.setProperty("--ui", sc.toFixed(3));
+}
+applyUiScale();
+window.addEventListener("resize", applyUiScale);
 requestAnimationFrame(loop);
 </script>
 </body>
