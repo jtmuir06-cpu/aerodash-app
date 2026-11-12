@@ -31,6 +31,11 @@
   #dropPrompt { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 16px; border-radius: 999px; font: 700 16px system-ui, sans-serif; color: #fff; white-space: nowrap; pointer-events: none; display: none; }
   #dropPrompt.ok { background: rgba(31,138,76,.92); }
   #dropPrompt.no { background: rgba(196,110,20,.92); }
+  #dropPrompt.info { background: rgba(20,40,70,.88); }
+  /* On-screen drop button (mouse/touch). Only active while landed in the drop zone. */
+  #dropBtn { position: absolute; left: 16px; bottom: 16px; zoom: var(--ui); display: none; padding: 12px 20px; font: 800 16px system-ui, sans-serif; letter-spacing: .03em; border-radius: 10px; border: 2px solid rgba(255,255,255,.85); background: rgba(40,46,56,.75); color: rgba(255,255,255,.6); cursor: not-allowed; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+  #dropBtn.ready { background: #1f8a4c; color: #fff; cursor: pointer; }
+  #dropBtn.ready:hover { filter: brightness(1.12); }
   #hud { position: absolute; left: 16px; top: 12px; font: 600 15px/1.3 system-ui, sans-serif; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.7); pointer-events: none; }
   #hud .big { font-size: 20px; }
   #ctrlStatus { position: absolute; right: 12px; top: 10px; font-size: 12px; color: #fff; background: rgba(0,0,0,.35); padding: 4px 8px; border-radius: 6px; pointer-events: none; }
@@ -186,6 +191,7 @@
     <div id="reticle"></div>
     <div id="downcam"><div id="downcamLabel">DOWN CAMERA</div></div>
     <div id="dropPrompt"></div>
+    <button id="dropBtn" type="button" tabindex="-1">DROP PACKAGE</button>
     <div id="paused">PAUSED</div>
   </div>
   <div id="panel"></div>
@@ -255,8 +261,9 @@
     <div class="kv" id="storeMsg" style="margin-top:6px"></div>
     <h2>Controls</h2>
     <div class="keys">
-      <b>Xbox controller (Mode 2):</b> left stick = climb/descend + turn · right stick = forward/back + sideways · <code>A</code> = acknowledge alert · <code>X</code> = drop package (only works when landed inside the orange drop zone) · <code>Menu</code> = pause<br>
+      <b>Xbox controller (Mode 2):</b> left stick = climb/descend + turn · right stick = forward/back + sideways · <code>A</code> = acknowledge alert · <code>X</code> = drop package · <code>Menu</code> = pause<br>
       <b>Keyboard fallback:</b> <code>W</code><code>S</code> forward/back · <code>A</code><code>D</code> sideways · <code>↑</code><code>↓</code> climb/descend · <code>←</code><code>→</code> turn · <code>Space</code> acknowledge · <code>E</code> drop package<br>
+      <b>Drop package:</b> <code>X</code>, <code>E</code>, or the on-screen <b>DROP PACKAGE</b> button (bottom-left). It only works when landed inside the orange drop zone.<br>
       <b>Researcher keys:</b> <code>C</code> status answer correct · <code>N</code> status answer wrong · <code>P</code> pause · <code>Esc</code> end trial early
     </div>
     <div class="kv" id="gfxStatus" style="margin-top:12px">Graphics: checking…</div>
@@ -578,7 +585,9 @@ function buildWorld(routeKey) {
   const stripeMat = new THREE.MeshLambertMaterial({ color: 0xf5f5f5 });
   C.walls.forEach(([wx, wz, dir]) => {
     const x = mx(wx), z = wz, alongX = dir === "ew";
-    const sx = alongX ? 4 : 32, sz = alongX ? 32 : 4;
+    // 44 m wide so a mid-block wall reaches into the buildings on both sides (at 32 m, narrow
+    // buildings left a ~2 m slot). Walls at/near an intersection can still be flown around via the cross street.
+    const sx = alongX ? 4 : 44, sz = alongX ? 44 : 4;
     const w = new THREE.Mesh(new THREE.BoxGeometry(sx, CFG.wallH, sz), wallMat); w.position.set(x, CFG.wallH / 2, z); worldGroup.add(w);
     for (let k = 4; k < CFG.wallH; k += 8) {
       const st = new THREE.Mesh(new THREE.BoxGeometry(sx + 0.2, 1.6, sz + 0.2), stripeMat); st.position.set(x, k, z); worldGroup.add(st);
@@ -683,13 +692,30 @@ window.addEventListener("keydown", e => {
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   if (e.code === "Space") keyAck = true;
-  if (e.code === "KeyE") keyDrop = true;
+  if (e.code === "KeyE" || e.code === "KeyX") keyDrop = true;
   if (e.code === "KeyP") keyPause = true;
   if (e.code === "KeyC") researcherStatus(true);
   if (e.code === "KeyN") researcherStatus(false);
   if (e.code === "Escape") endTrial("ended_by_researcher");
 });
-window.addEventListener("keyup", e => { keys[e.code] = false; });
+window.addEventListener("keyup", e => { keys[e.code] = false; if (run && run.active && e.code === "Space") e.preventDefault(); });
+// On-screen drop button. mousedown preventDefault keeps it from taking keyboard focus,
+// so a later Space (acknowledge) can't "click" it by accident.
+$("dropBtn").addEventListener("mousedown", e => e.preventDefault());
+$("dropBtn").addEventListener("click", () => { if (run && run.active && !run.paused) keyDrop = true; });
+
+// Fullscreen helpers. Keyboard Lock lets Esc reach the page (to end a trial) instead of
+// Chrome using the first press to leave fullscreen; holding Esc still exits fullscreen.
+function enterFullscreen() {
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  try {
+    const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req) return;
+    const pr = req.call(el);
+    const lock = () => { try { if (navigator.keyboard && navigator.keyboard.lock) navigator.keyboard.lock(["Escape"]).catch(() => {}); } catch (e) {} };
+    if (pr && pr.then) pr.then(lock, () => {}); else lock();
+  } catch (e) { /* fullscreen is optional; keep going */ }
+}
 
 // =====================================================================
 // Dashboard panels
@@ -1115,7 +1141,7 @@ function startBaseline() {
     charging: { need: false }, wind: { active: false },
   };
   $("setup").classList.remove("show");
-  try { const el = document.documentElement; const req = el.requestFullscreen || el.webkitRequestFullscreen; if (req) { const pr = req.call(el); if (pr && pr.catch) pr.catch(() => {}); } } catch (e) {}
+  enterFullscreen();
   setTimeout(() => {
     startRecording();
     syncFlash("START", () => {
@@ -1188,11 +1214,7 @@ function startTrial() {
   paintGates();
   renderAlerts(); updatePanel();
   $("setup").classList.remove("show");
-  try {
-    const el = document.documentElement;
-    const req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (req) { const pr = req.call(el); if (pr && pr.catch) pr.catch(() => {}); }
-  } catch (e) { /* fullscreen is optional; keep going */ }
+  enterFullscreen();
   setTimeout(() => { resize(); startRecording(); syncFlash("START", () => countdown(3, () => { run.active = true; run.lastFrame = performance.now(); logEvent("trial_start", `group=${run.group};route=${routeKey};order=${order.join("-")};planned_s=${run.schedule.map(e => EV[e.ev].key + "@" + e.at).join("|")};wind_fires_when_above_${CFG.windTrigger}m;gates=${totalGates()}`); })); }, 300);
 }
 
@@ -1352,6 +1374,7 @@ function step(dt, inp) {
   }
   const tgt = pads.depot;
   const onTarget = run.phase === "return" && Math.hypot(tgt.x - s.x, tgt.z - s.z) < CFG.padRadius;
+  run.onDepot = landed && onTarget;
   if (landed && onTarget && !run.charging.need) {
     run.padHold += dt;
     if (run.padHold >= CFG.landHold) {
@@ -1576,7 +1599,8 @@ const camPos = new THREE.Vector3(0, 12, 20);
 function loop(now) {
   requestAnimationFrame(loop);
   if (run && run.active) {
-    const dt = Math.min(0.05, (now - run.lastFrame) / 1000); run.lastFrame = now;
+    // Clamp to [0, 50 ms]: a frame timestamp can be slightly older than lastFrame (set by a timer), which must not run time backwards
+    const dt = clamp((now - run.lastFrame) / 1000, 0, 0.05); run.lastFrame = Math.max(now, run.lastFrame);
     const inp = readInput();
     if (keyAck) { inp.ack = true; keyAck = false; }
     if (keyDrop) { inp.drop = true; keyDrop = false; }
@@ -1587,9 +1611,17 @@ function loop(now) {
     const gl = gateList();
     $("hudTarget").textContent = run.gi < gl.length ? `Gate ${gateNumber()} of ${totalGates()}` : "Target: " + (run.phase === "outbound" ? "Drop zone (land, then drop)" : "Depot (land)");
     const dp = $("dropPrompt");
-    if (run.inDropZone) { dp.textContent = "In the drop zone · press X to drop the package"; dp.className = "ok"; dp.style.display = "block"; }
-    else if (run.t < run.dropMsgUntil) { dp.textContent = "Land inside the orange drop zone to drop the package"; dp.className = "no"; dp.style.display = "block"; }
+    const prompt = (text, cls) => { dp.textContent = text; dp.className = cls; dp.style.display = "block"; };
+    const statusUnscored = run.ack[3] && run.status.result === null && !run.ack[3].missed;
+    if (run.inDropZone) prompt("In the drop zone · press X / E or click DROP PACKAGE", "ok");
+    else if (run.t < run.dropMsgUntil) prompt("Land inside the orange drop zone to drop the package", "no");
+    else if (run.charging.need && run.chargeHoldT > 0) prompt(`Charging… ${Math.max(0, CFG.chargeHold - run.chargeHoldT).toFixed(1)} s`, "info");
+    else if (run.onDepot && !run.charging.need && statusUnscored) prompt("Landed · waiting for the researcher to score the status answer (C / N)", "info");
+    else if (run.onDepot && !run.charging.need) prompt("Landed at the depot · hold still", "info");
     else dp.style.display = "none";
+    const db = $("dropBtn");
+    db.style.display = run.phase === "outbound" && run.deliveredAt === null ? "block" : "none";
+    db.className = run.inDropZone ? "ready" : "";
     $("hudAlt").textContent = "ALT " + Math.round(run.state.y) + " m";
     $("hudTime").textContent = fmtT(run.t);
   } else if (run) {
